@@ -35,7 +35,15 @@ pub mod betting_game {
         Ok(())
     }
 
-    pub fn initialize(ctx: Context<Initialize>, security: String, comparator: u8, value: i64, exp: i32, expiry: u64, freeze: u64) -> ProgramResult {
+    pub fn initialize(  ctx: Context<Initialize>, 
+                        security: String, 
+                        comparator: u8, 
+                        value: u64, 
+                        exp: u64, 
+                        expiry: u64, 
+                        freeze: u64) -> ProgramResult {
+
+        msg!("Started");
         if freeze == 0 || expiry == 0 {
             msg!("Freezing or expiry offset is 0");
             return Err(ErrorCodes::CannotInitate.into());
@@ -48,6 +56,8 @@ pub mod betting_game {
             msg!("Unknown comparator");
             return Err(ErrorCodes::CannotInitate.into());
         }
+        
+        msg!("Initialized");
         // Set game and dashboard states
         let dashboard = &mut ctx.accounts.dashboard;
         let game = &mut ctx.accounts.bet_on;
@@ -61,8 +71,8 @@ pub mod betting_game {
         game.security[..sec.len()].copy_from_slice(sec);
 
         game.comparator = comparator;
-        game.value = value;
-        game.exp =exp;
+        game.value = value as i64;
+        game.exp =exp as i32;
         let clock = solana_program::clock::Clock::get()?;
         game.start = clock.unix_timestamp;
         game.expiry = game.start + expiry as i64;
@@ -74,23 +84,16 @@ pub mod betting_game {
 
         game.state = STATE_RUNNING;
 
-        // Transfer game authority
-        let cpi_accounts = SetAuthority {
-            account_or_mint: ctx.accounts.bet_on.to_account_info().clone(),
-            current_authority: ctx.accounts.system_program.to_account_info().clone(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi =  CpiContext::new(cpi_program, cpi_accounts);
-
-        token::set_authority(cpi, AuthorityType::AccountOwner, Some(pda))?;
-
+        msg!("Setting auth");
+        let msg = format!("owner : {} creator : {}", ctx.accounts.vault.owner, ctx.accounts.creator.key);
+        msg!( &msg[..] );
         // transfer vault authority
         let cpi_vault = SetAuthority {
             account_or_mint: ctx.accounts.vault.to_account_info().clone(),
             current_authority: ctx.accounts.creator.clone(),
         };
-        let cpi2 = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_vault);
-        token::set_authority( cpi2,  AuthorityType::AccountOwner, Some(pda))?;
+        let cpi = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_vault);
+        token::set_authority( cpi,  AuthorityType::AccountOwner, Some(pda))?;
 
         Ok(())
     }
@@ -229,7 +232,7 @@ pub struct Initialize<'info> {
     dashboard: Account<'info, Dashboard>,
     #[account(init, payer=creator, space = BetOn::LEN + 8)]
     bet_on: Account<'info, BetOn>,
-    #[account(constraint = &vault.owner == creator.key)]
+    #[account(mut,constraint= vault.owner == *creator.key)]
     vault : Account<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -241,9 +244,6 @@ pub struct AddPlayer<'info> {
     player: Account<'info, TokenAccount>,
     #[account(mut, constraint = bet_on.state == STATE_RUNNING)]
     bet_on: Account<'info, BetOn>,
-
-    #[account(signer)]
-    creator: AccountInfo<'info>,
 
     #[account(constraint = bet_on.vault == *vault.to_account_info().key, 
         constraint = player.mint == vault.mint)]
@@ -323,9 +323,9 @@ pub struct BetOn {
     comparator: u8,
     value: i64,
     exp: i32,
-    start: solana_program::clock::UnixTimestamp,
-    expiry: solana_program::clock::UnixTimestamp,
-    freeze: solana_program::clock::UnixTimestamp,
+    start: i64,
+    expiry: i64,
+    freeze: i64,
     creator: Pubkey,
     vault: Pubkey,
     total_pot: u64,
